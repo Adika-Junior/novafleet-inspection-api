@@ -81,7 +81,9 @@ function renderInspections() {
         return;
     }
     
-    tbody.innerHTML = inspections.map(inspection => `
+    tbody.innerHTML = inspections.map(inspection => {
+        const canReschedule = inspection.status === 'failed' || inspection.status === 'passed';
+        return `
         <tr class="fade-in">
             <td><strong>#${inspection.id}</strong></td>
             <td>
@@ -93,6 +95,11 @@ function renderInspections() {
             <td class="notes-cell" title="${inspection.notes || ''}">${inspection.notes || '<em class="text-muted">No notes</em>'}</td>
             <td class="text-muted">${formatDateTime(inspection.created_at)}</td>
             <td>
+                ${canReschedule ? `
+                <button class="btn btn-outline-warning btn-action" onclick="openRescheduleModal(${inspection.id})" title="Reschedule">
+                    <i class="fas fa-calendar-check"></i>
+                </button>
+                ` : ''}
                 <button class="btn btn-outline-primary btn-action" onclick="editInspection(${inspection.id})" title="Edit">
                     <i class="fas fa-edit"></i>
                 </button>
@@ -101,7 +108,8 @@ function renderInspections() {
                 </button>
             </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // Render empty state
@@ -405,3 +413,64 @@ loadInspections = async function() {
     // Store original data for search
     originalInspections = [...inspections];
 };
+
+// ============================================================================
+// RESCHEDULE FUNCTIONALITY
+// ============================================================================
+
+// Open reschedule modal
+function openRescheduleModal(id) {
+    const inspection = inspections.find(i => i.id === id);
+    if (!inspection) return;
+    
+    // Populate reschedule form
+    document.getElementById('rescheduleId').value = inspection.id;
+    document.getElementById('rescheduleVehiclePlate').value = inspection.vehicle_plate;
+    
+    // Set minimum date to today for future date validation
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('rescheduleDate').min = today;
+    document.getElementById('rescheduleDate').value = '';
+    document.getElementById('rescheduleNotes').value = inspection.notes || '';
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('rescheduleModal'));
+    modal.show();
+}
+
+// Submit reschedule request
+async function submitReschedule() {
+    const id = document.getElementById('rescheduleId').value;
+    const new_inspection_date = document.getElementById('rescheduleDate').value;
+    const notes = document.getElementById('rescheduleNotes').value.trim() || null;
+    
+    if (!new_inspection_date) {
+        showAlert('Please select a future inspection date', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/inspections/${id}/reschedule`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                new_inspection_date: new_inspection_date,
+                notes: notes
+            })
+        });
+        
+        if (response.ok) {
+            showAlert('Inspection rescheduled successfully!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('rescheduleModal')).hide();
+            loadInspections(); // Refresh the list
+        } else {
+            const errorData = await response.json();
+            handleApiError(errorData);
+        }
+    } catch (error) {
+        console.error('Error rescheduling inspection:', error);
+        showAlert('Failed to reschedule inspection. Please check your connection.', 'danger');
+    }
+}

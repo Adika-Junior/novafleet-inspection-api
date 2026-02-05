@@ -13,8 +13,8 @@ A modern, responsive web interface for the NovaFleet Vehicle Inspection API.
 # Navigate to frontend directory
 cd frontend
 
-# Start HTTP server (NO virtual environment needed)
-python -m http.server 3000
+# Start HTTP server with python3 (no virtual environment needed)
+python3 -m http.server 3000
 ```
 
 ### Access the Application
@@ -181,7 +181,7 @@ frontend/
 ## 🚀 Deployment
 
 ### Development
-- Use `python -m http.server 3000` for local testing
+- Use `python3 -m http.server 3000` for local testing (no venv required)
 - No build process required
 - All dependencies loaded from CDN
 

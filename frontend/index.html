@@ -163,9 +163,7 @@
                             <div class="mb-3">
                                 <label for="status" class="form-label">Status *</label>
                                 <select class="form-select" id="status" required>
-                                    <option value="scheduled">Scheduled</option>
-                                    <option value="passed">Passed</option>
-                                    <option value="failed">Failed</option>
+                                    <option value="scheduled" selected>Scheduled</option>
                                 </select>
                             </div>
                         </div>
@@ -293,6 +291,44 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" onclick="updateInspection()">
                         <i class="fas fa-save me-1"></i>Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reschedule Modal -->
+    <div class="modal fade" id="rescheduleModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-calendar-check me-2"></i>Reschedule Inspection
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="rescheduleForm">
+                        <input type="hidden" id="rescheduleId">
+                        <div class="mb-3">
+                            <label for="rescheduleVehiclePlate" class="form-label">Vehicle Plate</label>
+                            <input type="text" class="form-control" id="rescheduleVehiclePlate" disabled>
+                        </div>
+                        <div class="mb-3">
+                            <label for="rescheduleDate" class="form-label">New Inspection Date *</label>
+                            <input type="date" class="form-control" id="rescheduleDate" required>
+                            <small class="text-muted">Must be a future date</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="rescheduleNotes" class="form-label">Notes</label>
+                            <textarea class="form-control" id="rescheduleNotes" rows="3" placeholder="Optional notes for rescheduled inspection..."></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitReschedule()">
+                        <i class="fas fa-check me-1"></i>Reschedule
                     </button>
                 </div>
             </div>

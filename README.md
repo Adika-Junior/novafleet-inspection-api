@@ -220,7 +220,7 @@ http://localhost:8000/api/
 
 **Response:** `204 No Content`
 
-#### 7. Reschedule a Failed/Passed Inspection (NEW!)
+#### 7. Reschedule a Failed/Passed Inspection
 **POST** `/api/inspections/{id}/reschedule`
 
 **Purpose**: Reschedule a failed or passed inspection to a new future date with status reset to "scheduled"
@@ -257,7 +257,7 @@ http://localhost:8000/api/
 
 ### Business Rules & Validation
 
-1. **Intelligent Inspection Date Validation** ⭐ NEW
+1. **Intelligent Inspection Date Validation**
    - For **"scheduled"** inspections: Date must be in the future
    - For **"passed" or "failed"** inspections: Date can be in the past (to record historical inspections)
    - Error response example:
@@ -282,15 +282,15 @@ http://localhost:8000/api/
    - `status`: Required (defaults to "scheduled")
    - `notes`: Optional
 
-4. **Reschedule Rules** ⭐ NEW
+4. **Reschedule Rules**
    - Only inspections with status "failed" or "passed" can be rescheduled
    - Rescheduled inspections reset to "scheduled" status
-   - New inspection date must be in the future
+   - Rescheduled date must be in the future
    - Previous status change is tracked in inspection history
 
 ## 🧪 Running Tests
 
-The project includes comprehensive automated tests covering all requirements and new features.
+The project includes comprehensive automated tests covering all requirements and features.
 
 ### Run all tests
 ```bash
@@ -315,7 +315,7 @@ python manage.py test inspections.tests.test_views.InspectionAPITest.test_create
 python manage.py test inspections.tests.test_views.InspectionAPITest.test_reject_inspection_with_past_date
 ```
 
-### Run reschedule tests (NEW!)
+### Run reschedule tests
 ```bash
 # Test successful reschedule of failed inspection
 python manage.py test inspections.tests.test_views.InspectionRescheduleTest.test_reschedule_failed_inspection
@@ -347,36 +347,27 @@ Destroying test database for alias 'default'...
 5. Click "Execute" to test the API
 
 ### Using the Frontend Interface
-1. **Start the frontend server** (in a new terminal):
+1. **Start backend** (if not already running):
+   ```bash
+   python manage.py runserver
+   ```
+
+2. **Start frontend** (in a separate terminal, no venv activation needed):
    ```bash
    cd frontend
-   python -m http.server 3000
+   python3 -m http.server 3000
    ```
-   **Note**: Make sure to type `http.server` correctly (not `http.sever`)
+   **Note**: Use `python3` (not `python`) to ensure it runs without venv activation
 
-2. **Access the frontend**: http://localhost:3000
-3. **Test all features**:
+3. **Access the interface**: http://localhost:3000
+
+4. **Test all features**:
    - View dashboard statistics
-   - Create new inspections
-   - Edit existing inspections
-   - Delete inspections
-   - Test form validation
+   - Create, edit, and delete inspections
+   - Search inspections by vehicle plate
+   - Validate form inputs
 
-### Frontend Setup Notes
-- **No virtual environment needed** for the frontend - it's pure HTML/CSS/JavaScript (no Python required)
-- **No dependencies to install** - Frontend runs standalone with just Python's built-in http.server
-- **CORS is configured** in Django to allow frontend connections
-- **Both servers must be running**: Django (port 8000) + Frontend (port 3000)
-
-**To run frontend without activating venv**:
-```bash
-# From the frontend directory (in a NEW terminal, no venv needed)
-cd frontend
-python -m http.server 3000
-# Frontend will be available at http://localhost:3000
-```
-
-The frontend is completely independent - it communicates with the Django API via HTTP requests, no shared Python environment needed.
+**Note**: Frontend is pure HTML/CSS/JavaScript - use `python3 -m http.server 3000` (no venv activation needed). CORS is configured to allow frontend-to-backend communication.
 
 ### Using cURL
 
@@ -426,6 +417,7 @@ A modern, responsive web interface is included for easy interaction with the API
 - **Simple search by vehicle plate**
 - Responsive design
 - Form validation
+- Reschedule failed/passed inspections
 
 #### **Advanced Version** (`frontend/index-advanced.html`)
 - All basic features PLUS:
@@ -434,21 +426,38 @@ A modern, responsive web interface is included for easy interaction with the API
 - Offline support with auto-sync
 - Enhanced UI components
 
-### Quick Frontend Setup
-```bash
-# 1. Ensure backend is running
-python manage.py runserver
+### Frontend Inspection Workflow
 
-# 2. In a new terminal, start frontend (NO virtual environment needed)
-cd frontend
-python -m http.server 3000
+The frontend now implements a **status-aware workflow** that reflects the backend business logic:
+
+#### **1. Create New Inspection**
 ```
+Status Dropdown: [Scheduled] (only option)
+Inspection Date: Must be today or future
+Action: Click "Add Inspection" → Creates inspection with "scheduled" status
+```
+✅ Only allows "scheduled" status on creation (enforces business rule)
 
-### Access URLs
-- **Basic Interface**: http://localhost:3000/index.html
-- **Advanced Interface**: http://localhost:3000/index-advanced.html
-- **Backend API**: http://localhost:8000/api/inspections
-- **API Documentation**: http://localhost:8000/swagger/
+#### **2. Record Inspection Result** 
+```
+Click "Edit" on scheduled inspection
+Status Dropdown: [Scheduled, Passed, Failed] (all available)
+Inspection Date: Can be past date (to record historical results)
+Action: Select result status → Save → Status updated, history recorded
+```
+✅ Can change status to "passed" or "failed" with past dates
+
+#### **3. Reschedule Failed/Passed Inspections**
+```
+For any inspection with status "failed" or "passed":
+- Yellow Calendar Icon Button appears (in Actions column)
+- Click it → Opens "Reschedule Inspection" modal
+- Select new future date + optional notes
+- Click "Reschedule" → Status resets to "scheduled", date updated
+```
+✅ Only appears for failed/passed inspections  
+✅ Validates future date requirement  
+✅ Automatically resets status to scheduled
 
 ### Search Functionality
 Both versions include **vehicle plate search**:
@@ -607,23 +616,16 @@ venv\Scripts\activate     # Windows
 pip install django-cors-headers
 ```
 
-**3. "No module named http.sever"**
+**3. "python: command not found" when running http.server**
 ```bash
-# Fix typo: use http.server (not http.sever)
-python -m http.server 3000
+# Use python3 explicitly (works without venv)
+python3 -m http.server 3000
 ```
 
 **4. Frontend Can't Connect to API**
 - Ensure Django server is running on port 8000
 - Ensure frontend server is running on port 3000
-- Frontend doesn't need venv - just run `python -m http.server 3000` from frontend directory
-
-**5. "Frontend needs to be in venv"**
-- **No it doesn't!** Frontend is pure HTML/CSS/JavaScript
-- You only need Django in venv (for the API)
-- Frontend can run in ANY Python environment with `python -m http.server 3000`
-- No dependencies to install for frontend
-- Check browser console (F12) for error messages
+- Use `python3 -m http.server 3000` from frontend directory (no venv needed)
 
 **5. Tests Failing**
 ```bash
@@ -634,20 +636,11 @@ python manage.py test
 
 ## 💡 Development Tips
 
-- **Backend**: Requires virtual environment and dependencies
-- **Frontend**: No virtual environment needed (pure HTML/CSS/JS)
+- **Backend**: Requires Python venv and pip dependencies (run with `python manage.py runserver`)
+- **Frontend**: Pure HTML/CSS/JS - run with `python3 -m http.server 3000` (no venv needed)
 - **Two Terminals**: Run backend and frontend servers simultaneously
 - **CORS**: Already configured for localhost:3000 ↔ localhost:8000
-
-1. **Date Validation Timing**
-   - Challenge: Ensuring consistent date validation across model and serializer layers
-   - Solution: Implemented validation at both levels with clear error messages
-
-2. **Swagger Documentation**
-   - Challenge: Generating comprehensive API documentation automatically
-   - Solution: Used drf-yasg with custom schema annotations for detailed endpoint descriptions
-
-3. **Test Data Management**
+- **Python Version**: Use `python3` for frontend server (ensures system Python, not venv)
    - Challenge: Creating reliable tests that work regardless of when they're run
    - Solution: Used relative dates (date.today() + timedelta) instead of hardcoded dates
 
