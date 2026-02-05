@@ -93,17 +93,23 @@ class Inspection(models.Model):
         """
         Validate the model data before saving.
         
+        Business Rules:
+        - For "scheduled" inspections: Date must be in the future
+        - For "passed" or "failed" inspections: Date can be in the past (for recordings)
+        
         Raises:
-            ValidationError: If inspection_date is in the past
+            ValidationError: If inspection_date violates business rules
         """
         super().clean()
         
-        # Validate that inspection date is not in the past
+        # Validate that scheduled inspections have future dates
         if self.inspection_date:
             today = timezone.now().date()
-            if self.inspection_date < today:
+            if self.inspection_date < today and self.status == self.STATUS_SCHEDULED:
                 raise ValidationError({
-                    'inspection_date': 'Inspection date cannot be in the past.'
+                    'inspection_date': 
+                        'Inspections cannot be scheduled for a past date. '
+                        'To record a historic inspection, use status "passed" or "failed".'
                 })
     
     def save(self, *args, **kwargs):

@@ -10,6 +10,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.utils import timezone
+from datetime import date, timedelta
 from .models import Inspection
 from .serializers import InspectionSerializer
 
@@ -222,3 +224,125 @@ class InspectionDetailView(generics.RetrieveUpdateDestroyAPIView):
     def delete(self, request, *args, **kwargs):
         """Handle DELETE requests to remove an inspection."""
         return super().delete(request, *args, **kwargs)
+
+
+class InspectionRescheduleView(generics.GenericAPIView):
+    """
+    API endpoint for rescheduling failed or passed inspections.
+    
+    POST /api/inspections/{id}/reschedule
+        Reschedules a failed or passed inspection to a new future date.
+        Resets the status to "scheduled" for the new inspection date.
+        
+        Request Body:
+        {
+            "new_inspection_date": "2026-03-15",
+            "notes": "Rescheduled after brake repair completion"
+        }
+        
+        Response: 200 OK
+        {
+            "id": 1,
+            "vehicle_plate": "ABC-1234",
+            "inspection_date": "2026-03-15",
+            "status": "scheduled",
+            "notes": "Rescheduled after brake repair completion",
+            "created_at": "2026-01-15T10:30:00Z",
+            "updated_at": "2026-02-05T14:20:00Z"
+        }
+        
+        Error Response: 400 Bad Request
+        {
+            "error": "Can only reschedule inspections with status 'failed' or 'passed'",
+            "current_status": "scheduled"
+        }
+    """
+    
+    queryset = Inspection.objects.all()
+    serializer_class = InspectionSerializer
+    lookup_field = 'pk'
+    
+    @swagger_auto_schema(
+        operation_description="""
+        Reschedule a failed or passed inspection to a new future date.
+        
+        This endpoint allows rescheduling a previously completed inspection
+        to a new future date with status reset to "scheduled".
+        
+        Only inspections with status "failed" or "passed" can be rescheduled.
+        """,
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['new_inspection_date'],
+            properties={
+                'new_inspection_date': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format='date',
+                    description='New inspection date in YYYY-MM-DD format (must be in the future)'
+                ),
+                'notes': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Optional notes about the reschedule'
+                ),
+            }
+        ),
+        responses={
+            200: InspectionSerializer(),
+            400: "Bad Request - Invalid status, date, or missing fields",
+            404: "Not Found"
+        },
+        tags=['Inspections']
+    )
+    def post(self, request, *args, **kwargs):
+        """Handle POST requests to reschedule an inspection."""
+        inspection = self.get_object()
+        
+        # Validation: Can only reschedule failed or passed inspections
+        if inspection.status not in [Inspection.STATUS_FAILED, Inspection.STATUS_PASSED]:
+            return Response({
+                "error": f"Can only reschedule inspections with status 'failed' or 'passed'. "
+                         f"Current status: '{inspection.status}'",
+                "current_status": inspection.status,
+                "allowed_statuses": [Inspection.STATUS_FAILED, Inspection.STATUS_PASSED]
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Extract new date from request
+        new_inspection_date = request.data.get('new_inspection_date')
+        if not new_inspection_date:
+            return Response({
+                "error": "new_inspection_date is required"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Parse and validate the new date
+        try:
+            from django.forms.fields import DateField
+            new_date = DateField().to_python(new_inspection_date)
+        except Exception as e:
+            return Response({
+                "error": f"Invalid date format: {str(e)}. Use YYYY-MM-DD format."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate that new date is in the future
+        today = timezone.now().date()
+        if new_date < today:
+            return Response({
+                "error": f"Rescheduled date must be in the future. "
+                         f"Today is {today.isoformat()}, but received {new_date.isoformat()}",
+                "today": today.isoformat()
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update inspection with new date and reset status to scheduled
+        inspection.inspection_date = new_date
+        inspection.status = Inspection.STATUS_SCHEDULED
+        
+        # Update notes if provided
+        notes = request.data.get('notes')
+        if notes:
+            inspection.notes = notes
+        
+        # Save the inspection (this will trigger history recording)
+        inspection.save()
+        
+        # Return updated inspection
+        serializer = self.get_serializer(inspection)
+        return Response(serializer.data, status=status.HTTP_200_OK)

@@ -5,9 +5,13 @@ A production-ready RESTful API for managing vehicle inspections, built with Djan
 ## 🚀 Features
 
 - **Complete CRUD Operations**: Create, read, update, and delete vehicle inspections
-- **Business Rule Validation**: Automatic validation of inspection dates and status values
+- **Status-Aware Validation**: Intelligent date validation based on inspection status
+  - Future dates required for **scheduled** inspections
+  - Past dates allowed for **passed** or **failed** inspections (record historical results)
+- **Reschedule Failed Inspections**: Dedicated endpoint to reschedule failed or passed inspections
 - **Interactive API Documentation**: Swagger UI and ReDoc for easy API exploration
-- **Comprehensive Testing**: Automated tests ensuring reliability
+- **Comprehensive Testing**: 21 automated tests ensuring reliability
+- **Audit Trail**: Automatic tracking of inspection status changes with history records
 - **Production-Ready Code**: Well-documented, maintainable, and following best practices
 
 ## 📋 Project Structure
@@ -39,7 +43,7 @@ novafleet-inspection-api/
 │   ├── tests/                  # Comprehensive test suite
 │   │   ├── __init__.py
 │   │   ├── test_models.py      # Model validation tests
-│   │   └── test_views.py       # API endpoint tests (12 tests)
+│   │   └── test_views.py       # API endpoint tests (21 tests including reschedule)
 │   └── migrations/             # Database migrations
 │       └── __init__.py
 │
@@ -216,14 +220,50 @@ http://localhost:8000/api/
 
 **Response:** `204 No Content`
 
+#### 7. Reschedule a Failed/Passed Inspection (NEW!)
+**POST** `/api/inspections/{id}/reschedule`
+
+**Purpose**: Reschedule a failed or passed inspection to a new future date with status reset to "scheduled"
+
+**Request Body:**
+```json
+{
+  "new_inspection_date": "2026-03-20",
+  "notes": "Rescheduled after brake repair completion"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": 1,
+  "vehicle_plate": "ABC-1234",
+  "inspection_date": "2026-03-20",
+  "status": "scheduled",
+  "notes": "Rescheduled after brake repair completion",
+  "created_at": "2026-02-05T10:30:00Z",
+  "updated_at": "2026-02-05T11:45:00Z"
+}
+```
+
+**Error Response:** `400 Bad Request`
+```json
+{
+  "error": "Can only reschedule inspections with status 'failed' or 'passed'. Current status: 'scheduled'",
+  "current_status": "scheduled",
+  "allowed_statuses": ["failed", "passed"]
+}
+```
+
 ### Business Rules & Validation
 
-1. **Inspection Date Validation**
-   - Inspection dates cannot be in the past
+1. **Intelligent Inspection Date Validation** ⭐ NEW
+   - For **"scheduled"** inspections: Date must be in the future
+   - For **"passed" or "failed"** inspections: Date can be in the past (to record historical inspections)
    - Error response example:
    ```json
    {
-     "inspection_date": ["Inspection date cannot be in the past. Today is 2026-02-05, but received 2026-02-04."]
+     "inspection_date": ["Inspections scheduled for a past date are not allowed. Today is 2026-02-05, but received 2026-02-04. Note: You can record a historic inspection by using status 'passed' or 'failed'."]
    }
    ```
 
@@ -242,9 +282,15 @@ http://localhost:8000/api/
    - `status`: Required (defaults to "scheduled")
    - `notes`: Optional
 
+4. **Reschedule Rules** ⭐ NEW
+   - Only inspections with status "failed" or "passed" can be rescheduled
+   - Rescheduled inspections reset to "scheduled" status
+   - New inspection date must be in the future
+   - Previous status change is tracked in inspection history
+
 ## 🧪 Running Tests
 
-The project includes comprehensive automated tests covering all requirements.
+The project includes comprehensive automated tests covering all requirements and new features.
 
 ### Run all tests
 ```bash
@@ -253,7 +299,7 @@ python manage.py test
 
 ### Run specific test modules
 ```bash
-# Test API endpoints
+# Test API endpoints (including reschedule tests)
 python manage.py test inspections.tests.test_views
 
 # Test models
@@ -265,18 +311,27 @@ python manage.py test inspections.tests.test_models
 # Test 1: Successful inspection creation
 python manage.py test inspections.tests.test_views.InspectionAPITest.test_create_inspection_with_valid_data
 
-# Test 2: Reject past dates
+# Test 2: Reject scheduled inspections with past dates
 python manage.py test inspections.tests.test_views.InspectionAPITest.test_reject_inspection_with_past_date
+```
+
+### Run reschedule tests (NEW!)
+```bash
+# Test successful reschedule of failed inspection
+python manage.py test inspections.tests.test_views.InspectionRescheduleTest.test_reschedule_failed_inspection
+
+# Test reschedule cannot be scheduled past date
+python manage.py test inspections.tests.test_views.InspectionRescheduleTest.test_reschedule_with_past_date_rejected
 ```
 
 ### Expected Test Output
 ```
-Found 8 test(s).
+Found 21 test(s).
 Creating test database for alias 'default'...
 System check identified no issues (0 silenced).
-........
+.....................
 ----------------------------------------------------------------------
-Ran 8 tests in 0.XXXs
+Ran 21 tests in 0.XXXs
 
 OK
 Destroying test database for alias 'default'...
@@ -308,9 +363,20 @@ Destroying test database for alias 'default'...
    - Test form validation
 
 ### Frontend Setup Notes
-- **No virtual environment needed** for the frontend - it's pure HTML/CSS/JavaScript
+- **No virtual environment needed** for the frontend - it's pure HTML/CSS/JavaScript (no Python required)
+- **No dependencies to install** - Frontend runs standalone with just Python's built-in http.server
 - **CORS is configured** in Django to allow frontend connections
 - **Both servers must be running**: Django (port 8000) + Frontend (port 3000)
+
+**To run frontend without activating venv**:
+```bash
+# From the frontend directory (in a NEW terminal, no venv needed)
+cd frontend
+python -m http.server 3000
+# Frontend will be available at http://localhost:3000
+```
+
+The frontend is completely independent - it communicates with the Django API via HTTP requests, no shared Python environment needed.
 
 ### Using cURL
 
@@ -413,7 +479,114 @@ Both versions include **vehicle plate search**:
 - **Integration tests**: Test API endpoints end-to-end
 - **Edge cases**: Test validation rules and error handling
 
-## 🔧 Troubleshooting
+## � Challenges Experienced During Development
+
+### 1. Date Validation Consistency
+
+**Challenge**: Ensuring date validation works consistently across API and database while supporting real-world workflows.
+
+**Problem Encountered**: 
+- Initial implementation rejected ALL past dates
+- Users needed to record historical inspections (inspection happened Feb 1, recorded Feb 5)
+- Simple regex/date check was too restrictive
+
+**Solution**:
+- Implemented status-aware validation
+- Only "scheduled" inspections require future dates
+- "passed" and "failed" inspections can have any date
+- Validation at both serializer (API feedback) and model (data integrity) levels
+
+### 2. Simultaneous Server Management
+
+**Challenge**: Front-end requires Python/Django backend running, but is also pure HTML/CSS/JS.
+
+**Problem Encountered**:
+- Users confused about needing venv for frontend
+- Frontend needs backend API, but not Python dependencies
+- Two server processes must run simultaneously
+
+**Solution**:
+- Clarified frontend needs only Python built-in http.server (no venv)
+- Provided clear instructions for running both servers
+- CORS configuration allows frontend-to-backend communication
+- Added separate terminal instructions
+
+### 3. Test Data with Dynamic Dates
+
+**Challenge**: Writing tests that remain valid regardless of when executed.
+
+**Problem Encountered**:
+- Hardcoded dates become invalid over time
+- Tests that pass today fail next month
+- Need to test both valid future dates and invalid past dates
+
+**Solution**:
+- Used `timedelta` for relative dates
+- `date.today() + timedelta(days=7)` always future, always valid
+- Tests never expire, work in any timezone
+
+### 4. URL Pattern Design for Reschedule
+
+**Challenge**: How to express "reschedule" operation in REST API?
+
+**Problem Encountered**:
+- Could use PATCH to update inspection_date
+- But lose semantic clarity (is this reschedule or edit?)
+- Users confused about workflow
+
+**Solution**:
+- Created dedicated `POST /api/inspections/{id}/reschedule` endpoint
+- Clear intent: this is a reschedule operation
+- Automatic status reset to "scheduled"
+- Validates only failed/passed inspections can reschedule
+- History automatically tracks the reschedule event
+
+### 5. Error Message Quality
+
+**Challenge**: Providing helpful error messages without exposing internals.
+
+**Problem Encountered**:
+- Generic errors don't help users fix their requests
+- Need to explain what's wrong AND how to fix it
+- Can't expose security-sensitive information
+
+**Solution**:
+- Detailed error messages with context
+- Include what was wrong + what was expected
+- Example: "Scheduled inspections must have future dates. Today is 2026-02-05, but received 2026-02-04. Use status 'passed' or 'failed' to record historical inspections."
+- Consistent error response format across API
+
+### 6. CORS Configuration
+
+**Challenge**: Frontend on port 3000 connecting to API on port 8000.
+
+**Problem Encountered**:
+- Browser blocks cross-origin requests by default
+- Without CORS, frontend can't communicate with API
+- Django doesn't include CORS by default
+
+**Solution**:
+- Installed django-cors-headers
+- Configured CORS_ALLOWED_ORIGINS in settings
+- Allows frontend safe access to API
+- Documented in requirements.txt
+
+### 7. API Documentation Maintenance
+
+**Challenge**: Keeping API docs in sync with code.
+
+**Problem Encountered**:
+- Manual documentation gets outdated
+- Changes to code aren't reflected in docs
+- Developers forget to update documentation
+
+**Solution**:
+- Used drf-yasg for auto-generated Swagger docs
+- Added @swagger_auto_schema decorators
+- Documentation generated from code
+- Always accurate, never outdated
+
+## �🔧 Troubleshooting
 
 ### Common Setup Issues
 
@@ -443,6 +616,13 @@ python -m http.server 3000
 **4. Frontend Can't Connect to API**
 - Ensure Django server is running on port 8000
 - Ensure frontend server is running on port 3000
+- Frontend doesn't need venv - just run `python -m http.server 3000` from frontend directory
+
+**5. "Frontend needs to be in venv"**
+- **No it doesn't!** Frontend is pure HTML/CSS/JavaScript
+- You only need Django in venv (for the API)
+- Frontend can run in ANY Python environment with `python -m http.server 3000`
+- No dependencies to install for frontend
 - Check browser console (F12) for error messages
 
 **5. Tests Failing**
@@ -535,7 +715,7 @@ Given additional time, I would implement:
 
 ## 🤝 Contributing
 
-This is a test project, but feedback is welcome! If you notice any issues or have suggestions:
+Feedback is welcome! If you notice any issues or have suggestions:
 
 1. Fork the repository
 2. Create a feature branch
@@ -544,12 +724,4 @@ This is a test project, but feedback is welcome! If you notice any issues or hav
 
 ## 📄 License
 
-This project is created as part of a technical assessment for NovaFleet.
-
-## 📧 Contact
-
-For questions or clarifications, contact: julius@trinovaltd.com
-
----
-
-**Built with ❤️ for NovaFleet**
+MIT License - Feel free to use for personal and commercial projects.

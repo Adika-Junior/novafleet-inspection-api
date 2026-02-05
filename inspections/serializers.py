@@ -40,7 +40,11 @@ class InspectionSerializer(serializers.ModelSerializer):
     
     def validate_inspection_date(self, value):
         """
-        Validate that the inspection date is not in the past.
+        Validate inspection date based on inspection status.
+        
+        Business Rules:
+        - For "scheduled" inspections: Date must be in the future
+        - For "passed" or "failed" inspections: Date can be in past (recording historical inspections)
         
         Args:
             value (date): The inspection date to validate
@@ -49,14 +53,21 @@ class InspectionSerializer(serializers.ModelSerializer):
             date: The validated date
             
         Raises:
-            serializers.ValidationError: If the date is in the past
+            serializers.ValidationError: If validation rules are violated
         """
         today = timezone.now().date()
         
-        if value < today:
+        # Get the status from the request data or existing instance
+        status = self.initial_data.get('status')
+        if status is None and self.instance:
+            status = self.instance.status
+        
+        # Only enforce future-date requirement for scheduled inspections
+        if value < today and status == Inspection.STATUS_SCHEDULED:
             raise serializers.ValidationError(
-                f"Inspection date cannot be in the past. "
-                f"Today is {today.isoformat()}, but received {value.isoformat()}."
+                f"Inspections scheduled for a past date are not allowed. "
+                f"Today is {today.isoformat()}, but received {value.isoformat()}. "
+                f"Note: You can record a historic inspection by using status 'passed' or 'failed'."
             )
         
         return value

@@ -5,7 +5,7 @@ This module defines the URL patterns for all inspection-related API endpoints.
 """
 
 from django.urls import path
-from .views import InspectionListCreateView, InspectionDetailView
+from .views import InspectionListCreateView, InspectionDetailView, InspectionRescheduleView
 
 app_name = 'inspections'
 
@@ -21,4 +21,8 @@ urlpatterns = [
     # PATCH /api/inspections/{id} - Update an inspection (partial)
     # DELETE /api/inspections/{id} - Delete an inspection
     path('inspections/<int:pk>', InspectionDetailView.as_view(), name='inspection-detail'),
+    
+    # Reschedule a failed or passed inspection
+    # POST /api/inspections/{id}/reschedule - Reschedule an inspection
+    path('inspections/<int:pk>/reschedule', InspectionRescheduleView.as_view(), name='inspection-reschedule'),
 ]

@@ -192,3 +192,221 @@ class InspectionAPITest(TestCase):
         response = self.client.post(self.list_url, incomplete_data, format='json')
         
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_record_historical_passed_inspection(self):
+        """Test that we can record a past inspection with status 'passed'."""
+        # Create inspection data with a past date but status='passed'
+        past_date = date.today() - timedelta(days=5)
+        historical_data = {
+            'vehicle_plate': 'HIST-001',
+            'inspection_date': past_date.isoformat(),
+            'status': 'passed',
+            'notes': 'Historical inspection record'
+        }
+        
+        response = self.client.post(self.list_url, historical_data, format='json')
+        
+        # Should succeed because status is 'passed', not 'scheduled'
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['status'], 'passed')
+        self.assertEqual(response.data['vehicle_plate'], 'HIST-001')
+        
+        # Verify it was saved
+        self.assertEqual(Inspection.objects.count(), 1)
+        inspection = Inspection.objects.first()
+        self.assertEqual(inspection.status, 'passed')
+        self.assertEqual(inspection.inspection_date, past_date)
+    
+    def test_record_historical_failed_inspection(self):
+        """Test that we can record a past inspection with status 'failed'."""
+        past_date = date.today() - timedelta(days=3)
+        historical_data = {
+            'vehicle_plate': 'HIST-002',
+            'inspection_date': past_date.isoformat(),
+            'status': 'failed',
+            'notes': 'Failed emissions test'
+        }
+        
+        response = self.client.post(self.list_url, historical_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['status'], 'failed')
+
+
+class InspectionRescheduleTest(TestCase):
+    """Test cases for the reschedule functionality."""
+    
+    def setUp(self):
+        """Set up test client and create test inspections."""
+        self.client = APIClient()
+        
+        # Create a failed inspection for rescheduling
+        self.failed_inspection = Inspection.objects.create(
+            vehicle_plate='FAIL-001',
+            inspection_date=date.today() + timedelta(days=1),
+            status='failed',
+            notes='Failed brake inspection'
+        )
+        
+        # Create a passed inspection for rescheduling
+        self.passed_inspection = Inspection.objects.create(
+            vehicle_plate='PASS-001',
+            inspection_date=date.today() + timedelta(days=2),
+            status='passed',
+            notes='Passed all checks'
+        )
+        
+        # Create a scheduled inspection (should not be reschedulable)
+        self.scheduled_inspection = Inspection.objects.create(
+            vehicle_plate='SCHED-001',
+            inspection_date=date.today() + timedelta(days=7),
+            status='scheduled',
+            notes='Upcoming inspection'
+        )
+    
+    def test_reschedule_failed_inspection(self):
+        """Test rescheduling a failed inspection to a new future date."""
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.failed_inspection.id}
+        )
+        
+        new_date = date.today() + timedelta(days=14)
+        reschedule_data = {
+            'new_inspection_date': new_date.isoformat(),
+            'notes': 'Rescheduled after brake repair completion'
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        # Should succeed
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'scheduled')
+        self.assertEqual(response.data['inspection_date'], new_date.isoformat())
+        self.assertIn('Rescheduled', response.data['notes'])
+        
+        # Verify database was updated
+        self.failed_inspection.refresh_from_db()
+        self.assertEqual(self.failed_inspection.status, 'scheduled')
+        self.assertEqual(self.failed_inspection.inspection_date, new_date)
+    
+    def test_reschedule_passed_inspection(self):
+        """Test rescheduling a passed inspection."""
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.passed_inspection.id}
+        )
+        
+        new_date = date.today() + timedelta(days=30)
+        reschedule_data = {
+            'new_inspection_date': new_date.isoformat(),
+            'notes': 'Annual reinspection'
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'scheduled')
+        self.assertEqual(response.data['inspection_date'], new_date.isoformat())
+    
+    def test_cannot_reschedule_scheduled_inspection(self):
+        """Test that scheduled inspections cannot be rescheduled."""
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.scheduled_inspection.id}
+        )
+        
+        new_date = date.today() + timedelta(days=14)
+        reschedule_data = {
+            'new_inspection_date': new_date.isoformat(),
+            'notes': 'Trying to reschedule scheduled inspection'
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        # Should fail
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('scheduled', response.data['error'].lower())
+    
+    def test_reschedule_to_past_date_rejected(self):
+        """Test that rescheduling to a past date is rejected."""
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.failed_inspection.id}
+        )
+        
+        past_date = date.today() - timedelta(days=5)
+        reschedule_data = {
+            'new_inspection_date': past_date.isoformat(),
+            'notes': 'Trying to reschedule to past'
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        # Should fail
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('must be in the future', response.data['error'])
+    
+    def test_reschedule_without_new_date_rejected(self):
+        """Test that reschedule request without new_inspection_date is rejected."""
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.failed_inspection.id}
+        )
+        
+        reschedule_data = {
+            'notes': 'Missing new_inspection_date'
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('new_inspection_date', response.data['error'])
+    
+    def test_reschedule_with_invalid_date_rejected(self):
+        """Test that reschedule with invalid date format is rejected."""
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.failed_inspection.id}
+        )
+        
+        reschedule_data = {
+            'new_inspection_date': 'INVALID-DATE',
+            'notes': 'Invalid date format'
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Invalid date format', response.data['error'])
+    
+    def test_reschedule_history_tracking(self):
+        """Test that status change from failed to scheduled is recorded in history."""
+        from inspections.models import InspectionHistory
+        
+        # Clear history first
+        InspectionHistory.objects.all().delete()
+        
+        reschedule_url = reverse(
+            'inspections:inspection-reschedule',
+            kwargs={'pk': self.failed_inspection.id}
+        )
+        
+        new_date = date.today() + timedelta(days=14)
+        reschedule_data = {
+            'new_inspection_date': new_date.isoformat()
+        }
+        
+        response = self.client.post(reschedule_url, reschedule_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify history was recorded
+        history = InspectionHistory.objects.filter(inspection=self.failed_inspection)
+        self.assertTrue(history.exists())
+        
+        # Get the history record
+        history_record = history.first()
+        self.assertEqual(history_record.old_status, 'failed')
+        self.assertEqual(history_record.new_status, 'scheduled')
